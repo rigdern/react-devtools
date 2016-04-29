@@ -17,7 +17,83 @@ var SearchPane = require('./SearchPane');
 var SplitPane = require('./SplitPane');
 var TabbedPane = require('./TabbedPane');
 
+var consts = require('../agent/consts');
+
 import type MenuItem from './ContextMenu';
+
+var _indent = '  ';
+function indent(depth, s) {
+  for (var i = 0; i < depth; i++) {
+    s = _indent + s;
+  }
+  return s;
+}
+
+function stringifyProps(props) {
+  var result = '';
+  Object.keys(props).forEach(function (key) {
+    var value = props[key];
+    if (key !== 'children' &&
+        value !== undefined && value !== null &&
+        (typeof value !== 'object' || value[consts.type] !== 'function')) {
+      var stringifiedValue = typeof value === 'string' ?
+        stringifiedValue = '"' + value + '"' :
+        stringifiedValue = '{' + JSON.stringify(value) + '}';
+      result += ' ' + key + '=' + stringifiedValue;
+    }
+  });
+  return result;
+}
+
+function stringifyNativeTree(store, rootId) {
+  var result = '';
+  var rec = function (id, depth) {
+    var node = store.get(id);
+    var name = node.get('name');
+    var isNative = node.get('nodeType') === 'Native';
+    var children = node.get('children');
+    
+    var stringifiedProps = isNative ?
+      stringifyProps(node.get('props')) :
+      null;
+    
+    if (Array.isArray(children)) {    
+      if (isNative) {
+        result += indent(depth, '<' + name + stringifiedProps + '>\n');
+      }
+    
+      var childDepth = isNative ? (depth + 1) : depth;
+      for (var i = 0; i < children.length; i++) {
+        rec(children[i], childDepth);
+      }
+      
+      if (isNative) {
+        result += indent(depth, '</' + name + '>\n');
+      }
+    } else if (isNative) {
+      result += indent(depth, '<' + name + stringifiedProps + ' />\n');
+    }
+    
+    
+  };
+  
+  rec(rootId, 0);
+  return result;
+}
+
+function copyToClipboard(text) {
+  var el = document.createElement('pre');
+  el.innerText = text;
+  document.body.appendChild(el);
+
+  var range = document.createRange();
+  range.selectNode(el);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  document.execCommand('copy');
+  
+  document.body.removeChild(el);
+}
 
 class Container extends React.Component {
   props: {
@@ -73,6 +149,10 @@ var DEFAULT_MENU_ITEMS = {
         action: () => store.scrollToNode(id),
       });
     }
+    items.push({
+      title: 'Copy Native Tree',
+      action: () => copyToClipboard(stringifyNativeTree(store, id))
+    });
     return items;
   },
   attr: (id, node, val, path, name, store) => {
