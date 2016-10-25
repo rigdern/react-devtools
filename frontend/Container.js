@@ -37,8 +37,8 @@ function stringifyProps(props) {
         value !== undefined && value !== null &&
         (typeof value !== 'object' || value[consts.type] !== 'function')) {
       var stringifiedValue = typeof value === 'string' ?
-        stringifiedValue = '"' + value + '"' :
-        stringifiedValue = '{' + JSON.stringify(value) + '}';
+        '"' + value + '"' :
+        '{' + JSON.stringify(value) + '}';
       result += ' ' + key + '=' + stringifiedValue;
     }
   });
@@ -50,6 +50,7 @@ function stringifyNativeTree(store, rootId) {
   var rec = function (id, depth) {
     var node = store.get(id);
     var name = node.get('name');
+    var isText = node.get('nodeType') === 'Text';
     var isNative = node.get('nodeType') === 'Native';
     var children = node.get('children');
     
@@ -57,14 +58,20 @@ function stringifyNativeTree(store, rootId) {
       stringifyProps(node.get('props')) :
       null;
     
-    if (Array.isArray(children)) {    
+    if (isText) {
+      result += indent(depth, node.get('text') + '\n');
+    } else if (children != null) {    
       if (isNative) {
         result += indent(depth, '<' + name + stringifiedProps + '>\n');
       }
-    
-      var childDepth = isNative ? (depth + 1) : depth;
-      for (var i = 0; i < children.length; i++) {
-        rec(children[i], childDepth);
+
+      if (Array.isArray(children)) {
+        var childDepth = isNative ? (depth + 1) : depth;
+        for (var i = 0; i < children.length; i++) {
+          rec(children[i], childDepth);
+        }
+      } else if (typeof children === 'string') {
+        result += indent(depth + 1, children + '\n');
       }
       
       if (isNative) {
