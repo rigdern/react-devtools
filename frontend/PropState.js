@@ -88,10 +88,11 @@ class PropState extends React.Component {
     var state = this.props.node.get('state');
     var context = this.props.node.get('context');
     var propsReadOnly = !this.props.node.get('canUpdate');
+    var reactTag = this.props.node.get('reactTag');;
 
     return (
       <DetailPane
-        header={'<' + this.props.node.get('name') + '>'}
+        header={'<' + this.props.node.get('name') + '>' + (nodeType === 'Native' ? (' ' + reactTag) : '')}
         hint="($r in the console)">
         {key &&
           <DetailPaneSection
