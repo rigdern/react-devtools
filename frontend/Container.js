@@ -21,6 +21,8 @@ var consts = require('../agent/consts');
 
 import type MenuItem from './ContextMenu';
 
+var gBridge: any;
+
 var _indent = '  ';
 function indent(depth, s) {
   for (var i = 0; i < depth; i++) {
@@ -29,11 +31,12 @@ function indent(depth, s) {
   return s;
 }
 
-function stringifyProps(props) {
+function stringifyProps(styles, props) {
   var result = '';
   Object.keys(props).forEach(function (key) {
     var value = props[key];
-    if (key !== 'children' &&
+    if (key !== 'style' &&
+        key !== 'children' &&
         value !== undefined && value !== null &&
         (typeof value !== 'object' || value[consts.type] !== 'function')) {
       var stringifiedValue = typeof value === 'string' ?
@@ -42,10 +45,49 @@ function stringifyProps(props) {
       result += ' ' + key + '=' + stringifiedValue;
     }
   });
+  if (styles) {
+    result += ` style={${JSON.stringify(styles)}}`;
+  }
+
   return result;
 }
 
-function stringifyNativeTree(store, rootId) {
+function getNativeStyles(bridge, store, rootId, done) {
+  var outstanding = 1;
+  var decrementOutstanding = () => {
+    outstanding--;
+    if (outstanding === 0) {
+      done(result);
+    }
+  };
+
+  var result = {};
+
+  var rec = function (id) {
+    var node = store.get(id);
+    var isNative = node.get('nodeType') === 'Native';
+    var children = node.get('children');
+
+    if (isNative) {
+      outstanding++;
+      bridge.call('rn-style:get', id, resolvedStyle => {
+        result[id] = resolvedStyle;
+        decrementOutstanding();
+      });
+    }
+
+    if (children != null && Array.isArray(children)) {
+      for (var i = 0; i < children.length; i++) {
+        rec(children[i]);
+      }
+    }
+  };
+
+  rec(rootId);
+  decrementOutstanding();
+}
+
+function stringifyNativeTree(styles, store, rootId) {
   var result = '';
   var rec = function (id, depth) {
     var node = store.get(id);
@@ -53,14 +95,14 @@ function stringifyNativeTree(store, rootId) {
     var isText = node.get('nodeType') === 'Text';
     var isNative = node.get('nodeType') === 'Native';
     var children = node.get('children');
-    
+
     var stringifiedProps = isNative ?
-      stringifyProps(node.get('props')) :
+      stringifyProps(styles[id], node.get('props')) :
       null;
-    
+
     if (isText) {
       result += indent(depth, node.get('text') + '\n');
-    } else if (children != null) {    
+    } else if (children != null) {
       if (isNative) {
         result += indent(depth, '<' + name + stringifiedProps + '>\n');
       }
@@ -73,17 +115,17 @@ function stringifyNativeTree(store, rootId) {
       } else if (typeof children === 'string') {
         result += indent(depth + 1, children + '\n');
       }
-      
+
       if (isNative) {
         result += indent(depth, '</' + name + '>\n');
       }
     } else if (isNative) {
       result += indent(depth, '<' + name + stringifiedProps + ' />\n');
     }
-    
-    
+
+
   };
-  
+
   rec(rootId, 0);
   return result;
 }
@@ -98,12 +140,13 @@ function copyToClipboard(text) {
   window.getSelection().removeAllRanges();
   window.getSelection().addRange(range);
   document.execCommand('copy');
-  
+
   document.body.removeChild(el);
 }
 
 class Container extends React.Component {
   props: {
+    bridge: any;
     reload: () => void,
     extraPanes: Array<(node: Object) => React$Element>,
     extraTabs: ?{[key: string]: () => React$Element},
@@ -120,6 +163,9 @@ class Container extends React.Component {
     },
     extraTabs: {[key: string]: () => React$Element},
   };
+  componentWillMount() {
+    gBridge = this.props.bridge;
+  }
 
   render() {
     var tabs = {
@@ -158,7 +204,12 @@ var DEFAULT_MENU_ITEMS = {
     }
     items.push({
       title: 'Copy Native Tree',
-      action: () => copyToClipboard(stringifyNativeTree(store, id))
+      action: () => {
+        // TODO: Figure out the right way to get bridge in here instead of using a global.
+        getNativeStyles(gBridge, store, id, (styles) => {
+          copyToClipboard(stringifyNativeTree(styles, store, id));
+        });
+      }
     });
     return items;
   },

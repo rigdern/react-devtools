@@ -244,6 +244,7 @@ class Panel extends React.Component {
     }
     return (
       <Container
+        bridge={this._bridge}
         reload={this.props.reload && this.reload.bind(this)}
         menuItems={{
           attr: (id, node, val, path, name) => {
