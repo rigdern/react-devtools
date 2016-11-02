@@ -40,7 +40,7 @@ function stringifyProps(styles, props) {
         value !== undefined && value !== null &&
         (typeof value !== 'object' || value[consts.type] !== 'function')) {
       var stringifiedValue = typeof value === 'string' ?
-        '"' + value + '"' :
+        JSON.stringify(value) :
         '{' + JSON.stringify(value) + '}';
       result += ' ' + key + '=' + stringifiedValue;
     }
@@ -69,11 +69,15 @@ function getNativeStyles(bridge, store, rootId, done) {
     var children = node.get('children');
 
     if (isNative) {
-      outstanding++;
-      bridge.call('rn-style:get', id, resolvedStyle => {
-        result[id] = resolvedStyle;
-        decrementOutstanding();
-      });
+      if (true) {
+        outstanding++;
+        bridge.call('rn-style:get', id, resolvedStyle => {
+          result[id] = resolvedStyle;
+          decrementOutstanding();
+        });
+      } else {
+        result[id] = node.get('props')['style'];
+      }
     }
 
     if (children != null && Array.isArray(children)) {
@@ -87,7 +91,12 @@ function getNativeStyles(bridge, store, rootId, done) {
   decrementOutstanding();
 }
 
+function stringifyText(text) {
+  return `<RCTRawText text=${JSON.stringify(text)} />`;
+}
+
 function stringifyNativeTree(styles, store, rootId) {
+  var nativeComponents = { RCTRawText: true };
   var result = '';
   var rec = function (id, depth) {
     var node = store.get(id);
@@ -96,12 +105,16 @@ function stringifyNativeTree(styles, store, rootId) {
     var isNative = node.get('nodeType') === 'Native';
     var children = node.get('children');
 
+    if (isNative) {
+      nativeComponents[name] = true;
+    }
+
     var stringifiedProps = isNative ?
       stringifyProps(styles[id], node.get('props')) :
       null;
 
     if (isText) {
-      result += indent(depth, node.get('text') + '\n');
+      result += indent(depth, stringifyText(node.get('text')) + '\n');
     } else if (children != null) {
       if (isNative) {
         result += indent(depth, '<' + name + stringifiedProps + '>\n');
@@ -113,7 +126,7 @@ function stringifyNativeTree(styles, store, rootId) {
           rec(children[i], childDepth);
         }
       } else if (typeof children === 'string') {
-        result += indent(depth + 1, children + '\n');
+        result += indent(depth + 1, stringifyText(children) + '\n');
       }
 
       if (isNative) {
@@ -122,12 +135,13 @@ function stringifyNativeTree(styles, store, rootId) {
     } else if (isNative) {
       result += indent(depth, '<' + name + stringifiedProps + ' />\n');
     }
-
-
   };
 
   rec(rootId, 0);
-  return result;
+  const requires = ['const requireNativeComponent = require(\'requireNativeComponent\');'].concat(Object.keys(nativeComponents).sort().map((c) => {
+    return `const ${c} = requireNativeComponent('${c}', null);`;
+  }));
+  return requires.join('\n') + '\n\n' + result;
 }
 
 function copyToClipboard(text) {
@@ -192,17 +206,20 @@ var DEFAULT_MENU_ITEMS = {
     var items = [];
     if (node.get('name')) {
       items.push({
+        key: 'showNodesOfType',
         title: 'Show all ' + node.get('name'),
         action: () => store.changeSearch(node.get('name')),
       });
     }
     if (store.capabilities.scroll) {
       items.push({
+        key: 'scrollToNode',
         title: 'Scroll to Node',
         action: () => store.scrollToNode(id),
       });
     }
     items.push({
+      key: 'copyNativeTree',
       title: 'Copy Native Tree',
       action: () => {
         // TODO: Figure out the right way to get bridge in here instead of using a global.
