@@ -10,6 +10,7 @@
  */
 'use strict';
 
+var assign = require('object-assign');
 var ContextMenu = require('./ContextMenu');
 var PropState = require('./PropState');
 var React = require('react');
@@ -31,31 +32,24 @@ function indent(depth, s) {
   return s;
 }
 
-function stringifyProps(styles, props) {
+function stringifyProps(props) {
   var result = '';
   Object.keys(props).forEach(function (key) {
     var value = props[key];
-    if (key !== 'style' &&
-        key !== 'children' &&
-        value !== undefined && value !== null &&
-        (typeof value !== 'object' || value[consts.type] !== 'function')) {
-      var stringifiedValue = typeof value === 'string' ?
-        JSON.stringify(value) :
-        '{' + JSON.stringify(value) + '}';
+    var stringifiedValue = typeof value === 'string' ?
+      JSON.stringify(value) :
+      '{' + JSON.stringify(value) + '}';
       result += ' ' + key + '=' + stringifiedValue;
-    }
   });
-  if (styles) {
-    result += ` style={${JSON.stringify(styles)}}`;
-  }
 
   return result;
 }
 
-function getNativeStyles(bridge, store, rootId, done) {
+function getNativeProps(bridge, store, rootId, done) {
   var outstanding = 1;
   var decrementOutstanding = () => {
     outstanding--;
+    console.log('outstanding: ' + outstanding);
     if (outstanding === 0) {
       done(result);
     }
@@ -63,21 +57,69 @@ function getNativeStyles(bridge, store, rootId, done) {
 
   var result = {};
 
+  const resolveCollectionItems = (outProps, id, path, key, inColl) => {
+    var collPath = path.concat([key]);
+    var outColl = Array.isArray(inColl) ? inColl.slice(0) : assign({}, inColl);
+    outProps[key] = outColl;
+
+    if (Array.isArray(inColl)) {
+      inColl.forEach((itemValue, itemKey) => {
+        resolveProp(outColl, id, collPath, itemKey, itemValue);
+      });
+    } else {
+      Object.keys(inColl).forEach((itemKey) => {
+        resolveProp(outColl, id, collPath, itemKey, inColl[itemKey]);
+      });
+    }
+  }
+
+  const resolveProp = (outProps, id, path, key, value) => {
+    const otype = typeof value;
+    if (otype === 'number' || otype === 'string' || value === null || value === undefined || otype === 'boolean' ||
+        value[consts.type] === 'function') {
+      return;
+    }
+
+    if (value[consts.inspected] === false) {
+      if (Array.isArray(value)) {
+        throw new Error('Must inspect array');
+      }
+      outstanding++;
+      bridge.inspect(id, path.concat([key]), (resolvedValue) => {
+        const finalValue = assign({}, value, resolvedValue);
+        outProps[key] = finalValue;
+        resolveCollectionItems(outProps, id, path, key, finalValue);
+        decrementOutstanding();
+      });
+    } else {
+      resolveCollectionItems(outProps, id, path, key, value);
+    }
+  };
+
   var rec = function (id) {
     var node = store.get(id);
     var isNative = node.get('nodeType') === 'Native';
     var children = node.get('children');
+    var inProps = node.get('props');
+    var outProps = {};
+    result[id] = outProps;
 
     if (isNative) {
-      if (true) {
-        outstanding++;
-        bridge.call('rn-style:get', id, resolvedStyle => {
-          result[id] = resolvedStyle;
-          decrementOutstanding();
-        });
-      } else {
-        result[id] = node.get('props')['style'];
-      }
+      // Resolve style
+      outstanding++;
+      bridge.call('rn-style:get', id, resolvedStyle => {
+        outProps.style = resolvedStyle;
+        decrementOutstanding();
+      });
+
+      // Resolve props
+      Object.keys(inProps).forEach((key) => {
+        if (key === 'style' || key === 'children') {
+          return;
+        }
+
+        resolveProp(outProps, id, ['props'], key, inProps[key]);
+      });
     }
 
     if (children != null && Array.isArray(children)) {
@@ -95,7 +137,7 @@ function stringifyText(text) {
   return `<RCTRawText text=${JSON.stringify(text)} />`;
 }
 
-function stringifyNativeTree(styles, store, rootId) {
+function stringifyNativeTree(propsDb, store, rootId) {
   var nativeComponents = { RCTRawText: true };
   var result = '';
   var rec = function (id, depth) {
@@ -110,7 +152,7 @@ function stringifyNativeTree(styles, store, rootId) {
     }
 
     var stringifiedProps = isNative ?
-      stringifyProps(styles[id], node.get('props')) :
+      stringifyProps(propsDb[id]) :
       null;
 
     if (isText) {
@@ -223,8 +265,10 @@ var DEFAULT_MENU_ITEMS = {
       title: 'Copy Native Tree',
       action: () => {
         // TODO: Figure out the right way to get bridge in here instead of using a global.
-        getNativeStyles(gBridge, store, id, (styles) => {
-          copyToClipboard(stringifyNativeTree(styles, store, id));
+        getNativeProps(gBridge, store, id, (propsDb) => {
+          console.log('stringify & copy');
+          copyToClipboard(stringifyNativeTree(propsDb, store, id));
+          console.log('copy complete');
         });
       }
     });
