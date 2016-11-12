@@ -36,9 +36,7 @@ function stringifyProps(props) {
   var result = '';
   Object.keys(props).forEach(function (key) {
     var value = props[key];
-    var stringifiedValue = typeof value === 'string' ?
-      JSON.stringify(value) :
-      '{' + JSON.stringify(value) + '}';
+    var stringifiedValue = '{' + JSON.stringify(value) + '}';
       result += ' ' + key + '=' + stringifiedValue;
   });
 
@@ -75,8 +73,12 @@ function getNativeProps(bridge, store, rootId, done) {
 
   const resolveProp = (outProps, id, path, key, value) => {
     const otype = typeof value;
-    if (otype === 'number' || otype === 'string' || value === null || value === undefined || otype === 'boolean' ||
-        value[consts.type] === 'function') {
+    if (otype === 'number' || otype === 'string' || otype === 'boolean') {
+      outProps[key] = value;
+      return;
+    }
+
+    if (value === null || value === undefined || value[consts.type] === 'function') {
       return;
     }
 
@@ -134,7 +136,7 @@ function getNativeProps(bridge, store, rootId, done) {
 }
 
 function stringifyText(text) {
-  return `<RCTRawText text=${JSON.stringify(text)} />`;
+  return `<RCTRawText text={${JSON.stringify(text)}} />`;
 }
 
 function stringifyNativeTree(propsDb, store, rootId) {
